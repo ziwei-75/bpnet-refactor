@@ -50,6 +50,9 @@ def save_scores(peaks_df, one_hot_sequences, hyp_shap_scores, output_fname):
     coords_chrom = peaks_df['chrom'].values
     coords_start = peaks_df['start'].values
     coords_end = peaks_df['end'].values
+    seq_coords_chrom = peaks_df['chrom2'].values
+    seq_coords_start = peaks_df['seq_start'].values
+    seq_coords_end = peaks_df['seq_end'].values
     
     num_examples = peaks_df.shape[0]
     seq_len = one_hot_sequences.shape[1]
@@ -74,6 +77,24 @@ def save_scores(peaks_df, one_hot_sequences, hyp_shap_scores, output_fname):
         **hdf5plugin.Blosc()
     )
     coords_end_dset[:] = coords_end
+
+    seq_coords_chrom_dset = f.create_dataset(
+        "seq_coords_chrom", (num_examples,),
+        dtype=h5py.string_dtype(encoding="ascii") 
+    )
+    seq_coords_chrom_dset[:] = seq_coords_chrom.astype('U8')
+    
+    seq_coords_start_dset = f.create_dataset(
+        "seq_coords_start", (num_examples,), dtype="i4", 
+        **hdf5plugin.Blosc()
+    )
+    seq_coords_start_dset[:] = seq_coords_start
+    
+    seq_coords_end_dset = f.create_dataset(
+        "seq_coords_end", (num_examples,), dtype="i4", 
+        **hdf5plugin.Blosc()
+    )
+    seq_coords_end_dset[:] = seq_coords_end
         
     hyp_scores_dset = f.create_dataset(
         "hyp_scores", (num_examples, seq_len, 4), dtype="f2",
@@ -98,7 +119,10 @@ def shap_scores(args, shap_dir):
     # read all the peaks into a pandas dataframe
     peaks_df = pd.read_csv(args.bed_file, sep='\t', header=None, 
                            names=['chrom', 'st', 'stop', 'name', 'score',
-                                  'strand', 'signalValue', 'p', 'q', 'summit'])
+                                  'strand', 'signalValue', 'p', 'q', 'summit',
+                                  'chrom2', 'st2', 'stop2', 'name2', 'score2',
+                                  'strand2', 'signalValue2', 'p2', 'q2', 'summit2',
+                                  ])
 
     if args.chroms is not None:
         # keep only those rows corresponding to the required 
@@ -123,6 +147,11 @@ def shap_scores(args, shap_dir):
     peaks_df['start'] = peaks_df['st'] + peaks_df['summit'] - \
         (args.input_seq_len // 2)
     peaks_df['end'] = peaks_df['st'] + peaks_df['summit'] + \
+        (args.input_seq_len // 2)
+    
+    peaks_df['seq_start'] = peaks_df['st2'] + peaks_df['summit2'] - \
+        (args.input_seq_len // 2)
+    peaks_df['seq_end'] = peaks_df['st2'] + peaks_df['summit2'] + \
         (args.input_seq_len // 2)
         
     # get final number of peaks
@@ -201,10 +230,12 @@ def shap_scores(args, shap_dir):
     for idx, row in peaks_df.iterrows():
         start = row['start']
         end = row['end']
+        seq_start = row['seq_start']
+        seq_end = row['seq_end']
         
         # fetch the reference sequence at the peak location
         try:
-            seq = fasta_ref.fetch(row['chrom'], start, end).upper()        
+            seq = fasta_ref.fetch(row['chrom2'], seq_start, seq_end).upper()        
         except ValueError: # start/end out of range
             logging.warn("Unable to fetch reference sequence at peak: "
                          "{} {}-{}.".format(row['chrom'], start, end))

@@ -377,6 +377,7 @@ def metrics_update(
 
 def predict(args, pred_dir):    
     # load the model
+
     model = load_model(args.model)
 
     # parameters that are specific to the batch generation process.
@@ -575,8 +576,8 @@ def predict(args, pred_dir):
             # they are averaged when the for loop handles the first half
             if rev_comp_status[idx]==1:
                 continue
-
-            (chrom, start, end) = coordinates[idx]
+            
+            (chrom, start, end,chromo2, start2, end2) = coordinates[idx]
             start = int(start)
             end = int(end)
                 
