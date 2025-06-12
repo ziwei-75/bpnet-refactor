@@ -479,32 +479,32 @@ def predict(args, pred_dir):
         "coords_end", (num_examples,), dtype=int, compression="gzip")
     
     # create the "predictions" group datasets
-    pred_profs_dset = pred_group.create_dataset(
-        "pred_profs", 
-        (num_examples, args.output_window_size, num_output_tracks),
-        dtype=float, compression="gzip")
+    # pred_profs_dset = pred_group.create_dataset(
+    #     "pred_profs", 
+    #     (num_examples, args.output_window_size, num_output_tracks),
+    #     dtype=float, compression="gzip")
     pred_logcounts_dset = pred_group.create_dataset(
         "pred_logcounts", (num_examples, num_output_tracks),
         dtype=float, compression="gzip")
-    true_profs_dset = pred_group.create_dataset(
-        "true_profs", 
-        (num_examples, args.output_window_size, num_output_tracks),
-        dtype=float, compression="gzip")
+    # true_profs_dset = pred_group.create_dataset(
+    #     "true_profs", 
+    #     (num_examples, args.output_window_size, num_output_tracks),
+    #     dtype=float, compression="gzip")
     true_logcounts_dset = pred_group.create_dataset(
         "true_logcounts", (num_examples, num_output_tracks), 
         dtype=float, compression="gzip")
     
     # numpy array to hold all predictions
-    all_pred_profiles = np.zeros(
-        (num_examples, args.output_window_size, num_output_tracks))
+    # all_pred_profiles = np.zeros(
+    #     (num_examples, args.output_window_size, num_output_tracks))
 
     # numpy array to hold all logcounts predictions
     all_pred_logcounts = np.zeros(
         (num_examples, num_output_tracks))
 
     # numpy array to hold all true profiles
-    all_true_profiles = np.zeros(
-        (num_examples, args.output_window_size, num_output_tracks))
+    # all_true_profiles = np.zeros(
+    #     (num_examples, args.output_window_size, num_output_tracks))
 
     # numpy array to hold all true logcounts
     all_true_logcounts = np.zeros(
@@ -515,12 +515,12 @@ def predict(args, pred_dir):
     
     metrics_tracker = {
         # profile metrics 
-        'profile_mnlls': np.zeros((num_examples, num_output_tracks)),
-        'profile_cross_entropys': np.zeros((num_examples, num_output_tracks)),
-        'profile_jsds': np.zeros((num_examples, num_output_tracks)),
-        'profile_mses': np.zeros((num_examples, num_output_tracks)),
-        'profile_pearsonrs': np.zeros((num_examples, num_output_tracks)),
-        'profile_spearmanrs': np.zeros((num_examples, num_output_tracks)),
+        # 'profile_mnlls': np.zeros((num_examples, num_output_tracks)),
+        # 'profile_cross_entropys': np.zeros((num_examples, num_output_tracks)),
+        # 'profile_jsds': np.zeros((num_examples, num_output_tracks)),
+        # 'profile_mses': np.zeros((num_examples, num_output_tracks)),
+        # 'profile_pearsonrs': np.zeros((num_examples, num_output_tracks)),
+        # 'profile_spearmanrs': np.zeros((num_examples, num_output_tracks)),
 
         # for counts correlation
         'all_true_logcounts': np.zeros((num_examples, num_output_tracks)),
@@ -540,8 +540,9 @@ def predict(args, pred_dir):
     for batch in tqdm(test_generator, desc='batch', total=num_batches):
         
         coordinates = batch['coordinates']
-        true_profiles = batch['true_profiles']
-        true_logcounts = batch['true_logcounts']
+        multiscaled_logcounts = batch['multiscaled_logcounts']
+        # true_profiles = batch['true_profiles']
+        # true_logcounts = batch['true_logcounts']
         rev_comp_status = batch['rev_comp']
 
         if args.reverse_complement_average:
@@ -550,20 +551,21 @@ def predict(args, pred_dir):
             assert(rev_comp_status[len(rev_comp_status)//2:].sum() == len(rev_comp_status)//2)
 
         # predict on the batch
-        predictions = model.predict(batch)
+        inputs = [batch['sequence'],batch['multiscaled_counts_bias_input_0']]
+        predictions = model.predict(inputs)
         
                 
         # arrays to hold required values for each batch before we 
         # write to HDF5 file
-        pred_profiles = np.zeros(
-            (args.batch_size, args.output_window_size, num_output_tracks))
-        pred_logcounts = np.zeros((args.batch_size, num_output_tracks))
+        # pred_profiles = np.zeros(
+        #     (args.batch_size, args.output_window_size, num_output_tracks))
+        pred_logcounts = np.zeros((args.batch_size, 20))
         # Since we are filtering out repeats in the coordinates
         # the actual data points from true_profiles and true_logcounts
         # may be different from the original arrays
-        _true_profiles = np.zeros(
-            (args.batch_size, args.output_window_size, num_output_tracks))
-        _true_logcounts = np.zeros((args.batch_size, num_output_tracks))            
+        # _true_profiles = np.zeros(
+        #     (args.batch_size, args.output_window_size, num_output_tracks))
+        _true_logcounts = np.zeros((args.batch_size, 20))            
         
         # count the number of valid non repeating (padded examples)
         # in this batch
@@ -603,12 +605,13 @@ def predict(args, pred_dir):
                 _start = args.output_len // 2 - args.output_window_size // 2  
                 _end = _start + args.output_window_size
                 
-                cur_profile_prediction = predictions[0][idx:idx+1]
-                cur_logcounts_prediction = predictions[1][idx:idx+1]
+                # cur_profile_prediction = predictions[0][idx:idx+1]
+                #cur_logcounts_prediction = predictions[1][idx:idx+1]
+                cur_logcounts_prediction = predictions[0]
                 
-                assert(cur_profile_prediction.shape==(1,args.output_len,2))
-                assert((cur_logcounts_prediction.shape==(1,1))|
-                       (cur_logcounts_prediction.shape==(1,2)))
+                # assert(cur_profile_prediction.shape==(1,args.output_len,2))
+                # assert((cur_logcounts_prediction.shape==(1,1))|
+                #        (cur_logcounts_prediction.shape==(1,2)))
 
                 if args.reverse_complement_average:
                     # take the prediction from the rev comp version
@@ -619,29 +622,29 @@ def predict(args, pred_dir):
                     assert(rev_comp_status[idx]==0)
                     assert(rev_comp_status[rev_comp_idx]==1)
 
-                    rev_comp_profile_prediction = predictions[0][rev_comp_idx:rev_comp_idx+1]
-                    rev_comp_logcounts_prediction = predictions[1][rev_comp_idx:rev_comp_idx+1]
+                    # rev_comp_profile_prediction = predictions[0][rev_comp_idx:rev_comp_idx+1]
+                    # rev_comp_logcounts_prediction = predictions[1][rev_comp_idx:rev_comp_idx+1]
+                    rev_comp_logcounts_prediction = predictions[0]
                     
-                    assert(rev_comp_profile_prediction.shape==(1,args.output_len,2))
-                    assert((rev_comp_logcounts_prediction.shape==(1,1))|
-                           (rev_comp_logcounts_prediction.shape==(1,2)))
-                    
+                    # assert(rev_comp_profile_prediction.shape==(1,args.output_len,2))
+                    # assert((rev_comp_logcounts_prediction.shape==(1,1))|
+                    #        (rev_comp_logcounts_prediction.shape==(1,2)))
 
                     # average the counts
-                    if args.orig_multi_loss:
-                        assert(len(cur_logcounts_prediction.ravel())==2)
-                        rev_comp_logcounts_prediction = rev_comp_logcounts_prediction[:,::-1]
+                    # if args.orig_multi_loss:
+                    #     assert(len(cur_logcounts_prediction.ravel())==2)
+                    #     rev_comp_logcounts_prediction = rev_comp_logcounts_prediction[:,::-1]
                     
                     # average the counts
                     cur_logcounts_prediction = (cur_logcounts_prediction + rev_comp_logcounts_prediction) / 2
 
-                    rev_comp_profile_prediction = sequtils.reverse_complement_of_profiles(rev_comp_profile_prediction,
-                                                                                          stranded=rev_comp_profile_prediction.shape[2]==2)
+                    # rev_comp_profile_prediction = sequtils.reverse_complement_of_profiles(rev_comp_profile_prediction,
+                    #                                                                       stranded=rev_comp_profile_prediction.shape[2]==2)
                     
-                    assert(rev_comp_profile_prediction.shape==(1,args.output_len,2))
+                    # assert(rev_comp_profile_prediction.shape==(1,args.output_len,2))
                     
                     # average the profiles
-                    cur_profile_prediction = (cur_profile_prediction + rev_comp_profile_prediction) / 2
+                    # cur_profile_prediction = (cur_profile_prediction + rev_comp_profile_prediction) / 2
 
                 
                 if args.orig_multi_loss:
@@ -685,12 +688,12 @@ def predict(args, pred_dir):
                 
             
                 # true profile
-                _true_profiles[cnt_batch_examples, :, j] = \
-                    true_profiles[idx, _start:_end, j]
+                # _true_profiles[cnt_batch_examples, :, j] = \
+                #     true_profiles[idx, _start:_end, j]
                 
                 # true logcounts
                 _true_logcounts[cnt_batch_examples, j] = \
-                    true_logcounts[idx, j]
+                    multiscaled_logcounts[idx, j]
 
                 metrics_update(
                     metrics_tracker,
@@ -710,16 +713,16 @@ def predict(args, pred_dir):
         end_idx = cnt_examples + cnt_batch_examples
 
         # populate all_pred_profiles 
-        all_pred_profiles[start_idx:end_idx, :, :] = \
-            pred_profiles[:cnt_batch_examples]
+        # all_pred_profiles[start_idx:end_idx, :, :] = \
+        #     pred_profiles[:cnt_batch_examples]
         
         # populate all_pred_logcounts
         all_pred_logcounts[start_idx:end_idx, :] = \
             pred_logcounts[:cnt_batch_examples]
         
         # populate all_true_profiles
-        all_true_profiles[start_idx:end_idx, :, :] = \
-            _true_profiles[:cnt_batch_examples]
+        # all_true_profiles[start_idx:end_idx, :, :] = \
+        #     _true_profiles[:cnt_batch_examples]
         
         # populate all_true_logcounts
         all_true_logcounts[start_idx:end_idx, :] = \

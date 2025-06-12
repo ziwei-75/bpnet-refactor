@@ -51,7 +51,7 @@ import multiprocessing as mp
 import os
 import pandas as pd
 import time
-
+import tensorflow as tf
 from bpnet.utils.datetime_custom import *
 from bpnet.utils.exceptionhandler import NoTracebackException
 from bpnet.utils import logger
@@ -295,7 +295,7 @@ def train_and_validate(
     logging.info("SEQGEN Class Name: {}".format(sequence_generator_class_name))
     BatchGenerator = getattr(generators, sequence_generator_class_name)
 
-    # instantiate the batch generator class for training
+    # # instantiate the batch generator class for training
     train_gen = BatchGenerator(input_data, train_batch_gen_params, 
                                genome_params['reference_genome'], 
                                genome_params['chrom_sizes'],
@@ -308,7 +308,7 @@ def train_and_validate(
                                background_weight=mnll_loss_background_sample_weight)
 
 
-    # instantiate the batch generator class for validation
+    # # instantiate the batch generator class for validation
     val_gen = BatchGenerator(input_data, val_batch_gen_params, 
                              genome_params['reference_genome'], 
                              genome_params['chrom_sizes'],
@@ -320,17 +320,17 @@ def train_and_validate(
                              foreground_weight=mnll_loss_sample_weight,
                              background_weight=mnll_loss_background_sample_weight)
 
-    # we need to calculate the number of training steps and 
-    # validation steps in each epoch, fit/evaluate requires this
-    # to determine the end of an epoch
+    # # we need to calculate the number of training steps and 
+    # # validation steps in each epoch, fit/evaluate requires this
+    # # to determine the end of an epoch
     train_steps = train_gen.len()
     val_steps = val_gen.len()
 
     # we may have to reduce the --threads sometimes
     # if the peak file has very few peaks, so we need to
     # check if these numbers will be 0
-    logging.info("TRAINING STEPS - {}".format(train_steps))
-    logging.info("VALIDATION STEPS - {}".format(val_steps))
+    # logging.info("TRAINING STEPS - {}".format(train_steps))
+    # logging.info("VALIDATION STEPS - {}".format(val_steps))
 
     # get an instance of the model
     logging.debug("New {} model".format(model_arch_name))
@@ -344,26 +344,35 @@ def train_and_validate(
     # print out the model summary
     model.summary()
         
-    logging.info(f"model.num_tasks: {model.num_tasks}")
-    logging.info(f"model.num_output_tracks: {model.num_output_tracks}")
-    logging.info(f"model.orig_multi_loss: {model.orig_multi_loss}")
+    # logging.info(f"model.num_tasks: {model.num_tasks}")
+    # logging.info(f"model.num_output_tracks: {model.num_output_tracks}")
+    # logging.info(f"model.orig_multi_loss: {model.orig_multi_loss}")
 
     # compile the model
     logging.debug("Compiling model")
     logging.info("loss weights - {}".format(model_arch_params['loss_weights']))
     logging.info("counts loss - {}".format(model_arch_params['counts_loss']))
     model.compile(Adam(learning_rate=hyper_params['learning_rate']), 
-					  loss = None,
-                    loss_weights=model_arch_params['loss_weights'])
-    
-    # begin time for training
+					  loss = 'mse')
+
+    #begin time for training
     t1 = time.time()
 
-    # track training losses, validation losses and start & end
-    # times
+    #track training losses, validation losses and start & end
+    #times
     custom_history = {
         'learning_rate': {},
         'loss': {},
+        'logcounts_predictions0_loss':{},
+        'logcounts_predictions1_loss':{},
+        'logcounts_predictions2_loss':{},
+        'logcounts_predictions3_loss':{},
+        'logcounts_predictions4_loss':{},
+        'val_logcounts_predictions0_loss':{},
+        'val_logcounts_predictions1_loss':{},
+        'val_logcounts_predictions2_loss':{},
+        'val_logcounts_predictions3_loss':{},
+        'val_logcounts_predictions4_loss':{},
         'batch_loss': {},
         'profile_predictions_loss': {},
         'logcounts_predictions_loss': {},
