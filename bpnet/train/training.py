@@ -344,17 +344,16 @@ def train_and_validate(
     # print out the model summary
     model.summary()
         
-    logging.info(f"model.num_tasks: {model.num_tasks}")
-    logging.info(f"model.num_output_tracks: {model.num_output_tracks}")
-    logging.info(f"model.orig_multi_loss: {model.orig_multi_loss}")
+    # logging.info(f"model.num_tasks: {model.num_tasks}")
+    # logging.info(f"model.num_output_tracks: {model.num_output_tracks}")
+    # logging.info(f"model.orig_multi_loss: {model.orig_multi_loss}")
 
     # compile the model
     logging.debug("Compiling model")
     logging.info("loss weights - {}".format(model_arch_params['loss_weights']))
     logging.info("counts loss - {}".format(model_arch_params['counts_loss']))
     model.compile(Adam(learning_rate=hyper_params['learning_rate']), 
-					  loss = None,
-                    loss_weights=model_arch_params['loss_weights'])
+					  loss = 'mse')
     
     # begin time for training
     t1 = time.time()
@@ -365,11 +364,11 @@ def train_and_validate(
         'learning_rate': {},
         'loss': {},
         'batch_loss': {},
-        'profile_predictions_loss': {},
+        # 'profile_predictions_loss': {},
         'logcounts_predictions_loss': {},
         'val_loss': {},
         'val_batch_loss': {},
-        'val_profile_predictions_loss': {},
+        # 'val_profile_predictions_loss': {},
         'val_logcounts_predictions_loss': {},
         'start_time': {},
         'end_time': {},

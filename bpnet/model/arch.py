@@ -7,6 +7,7 @@ from numpy.random import seed
 seed(1234)
 from tensorflow.random import set_seed 
 set_seed(1234)
+from tensorflow.keras.layers import Layer
 
 from bpnet.model.custommodel import CustomModel
 from bpnet.utils.exceptionhandler \
@@ -301,7 +302,9 @@ def counts_head(
                                name='counts_dropout_{}'.format(i))(x)
             
     # the final Dense layer with linear activation and no dropout
-    return layers.Dense(units[-1], name=name)(x)
+    output = layers.Dense(32,name=name)(x)
+    return output
+    # return layers.Dense(units[-1], name=name)(x)
 
 
 def profile_bias_module(
@@ -400,83 +403,100 @@ def counts_bias_module(counts_head, counts_bias_inputs, tasks_info,
             N-D tensor with shape: (batch_size, #tasks)
     
     """
-    # number of tasks
-    num_tasks = len(counts_bias_inputs)
+    class ScalarMergeLayer(Layer):
+        def __init__(self, **kwargs):
+            super(ScalarMergeLayer, self).__init__(**kwargs)
 
-    # list of all counts outputs so we can concatentate at the end
-    counts_outputs = []
+        def build(self,input_shape):
+            self.a = self.add_weight(shape=(), initializer='random_normal', trainable=True, name='a')
+            self.b = self.add_weight(shape=(), initializer='random_normal', trainable=True, name='b')
+            self.c = self.add_weight(shape=(), initializer='zeros', trainable=True, name='c')
 
-    # start idx for the ith task in the counts head
-    task_offset = 0
+        def call(self, inputs):
+            x1, x2 = inputs
+            return self.a * x1 + self.b * x2 + self.c
 
-    # iterate through each task and get corresponding counts output
-    for i in range(num_tasks):  
-        # number of counts output tracks for this task
-        num_task_tracks = len(tasks_info[i]['signal']['source'])
+        def compute_output_shape(self, input_shape):
+            return input_shape[0]
+    output = ScalarMergeLayer()([counts_head, counts_bias_inputs])
+    return output
+    # # number of tasks
+    # num_tasks = len(counts_bias_inputs)
 
-        if num_tasks == 1:
-            # no need to slice for a single task scenario
-            _counts_head = counts_head
-        else:            
-            #  get the slice of profile head for this task
-            _counts_head = _slice(
-                1, task_offset, task_offset + num_task_tracks, 
-                name="{}_counts_head_{}".format(name_prefix, i))(counts_head)
+    # # list of all counts outputs so we can concatentate at the end
+    # counts_outputs = []
+
+    # # start idx for the ith task in the counts head
+    # task_offset = 0
+
+    # # iterate through each task and get corresponding counts output
+    # for i in range(num_tasks):  
+    #     # number of counts output tracks for this task
+    #     num_task_tracks = len(tasks_info[i]['signal']['source'])
+
+    #     if num_tasks == 1:
+    #         # no need to slice for a single task scenario
+    #         _counts_head = counts_head
+    #     else:            
+    #         #  get the slice of profile head for this task
+    #         _counts_head = _slice(
+    #             1, task_offset, task_offset + num_task_tracks, 
+    #             name="{}_counts_head_{}".format(name_prefix, i))(counts_head)
 
         
-        # increment the offset 
-        task_offset += num_task_tracks
+    #     # increment the offset 
+    #     task_offset += num_task_tracks
         
-        # if no bias tracks are found for this task, we directly append
-        # the slice of the counts_head corresponding to this task to
-        # counts_outputs
-        if counts_bias_inputs[i] is None:
-            counts_outputs.append(_counts_head)
-        else:
-            # concatenate counts head with slice of counts bias input
-            # for this task
-            if orig_multi_loss:
-                concat_with_counts_bias_input = layers.concatenate(
-                    [_counts_head, counts_bias_inputs[i]], 
-                    name="{}_concat_with_counts_bias_{}".format(name_prefix, i),
-                    axis=-1)
-            else:
-                # summing over strands
-                counts_bias_input_out_logcounts = layers.Lambda(
-                    lambda x: tf.math.reduce_logsumexp(x, axis=-1, keepdims=True),
-                    name="{}_logsumexp_counts_bias_{}".format(name_prefix, i))(counts_bias_inputs[i])
+    #     # if no bias tracks are found for this task, we directly append
+    #     # the slice of the counts_head corresponding to this task to
+    #     # counts_outputs
+    #     if counts_bias_inputs[i] is None:
+    #         counts_outputs.append(_counts_head)
+    #     else:
+    #         # concatenate counts head with slice of counts bias input
+    #         # for this task
+    #         if orig_multi_loss:
+    #             concat_with_counts_bias_input = layers.concatenate(
+    #                 [_counts_head, counts_bias_inputs[i]], 
+    #                 name="{}_concat_with_counts_bias_{}".format(name_prefix, i),
+    #                 axis=-1)
+    #         else:
+    #             # summing over strands
+    #             counts_bias_input_out_logcounts = layers.Lambda(
+    #                 lambda x: tf.math.reduce_logsumexp(x, axis=-1, keepdims=True),
+    #                 name="{}_logsumexp_counts_bias_{}".format(name_prefix, i))(counts_bias_inputs[i])
 
-                concat_with_counts_bias_input = layers.concatenate(
-                    [_counts_head, counts_bias_input_out_logcounts], 
-                    name="{}_concat_with_counts_bias_{}".format(name_prefix, i),
-                    axis=-1)
+    #             concat_with_counts_bias_input = layers.concatenate(
+    #                 [_counts_head, counts_bias_input_out_logcounts], 
+    #                 name="{}_concat_with_counts_bias_{}".format(name_prefix, i),
+    #                 axis=-1)
 
-            # single unit Dense layer to yield the counts output 
-            # prediction for this task
-            if num_tasks == 1:
-                name = "logcounts_predictions"
-            else:
-                name = "logcounts_predictions_{}".format(i)
-            #     name = "logcounts_predictions_{}".format(i)
-            # counts_outputs.append(layers.Dense(
-            #     units=num_task_tracks, 
-            #     name=name)(concat_with_counts_bias_input))
-            if orig_multi_loss:
-                counts_outputs.append(layers.Dense(
-                    units=num_task_tracks, 
-                    name=name)(concat_with_counts_bias_input))
-            else: 
-                counts_outputs.append(layers.Dense(
-                    units=num_tasks, 
-                    name=name)(concat_with_counts_bias_input))
+    #         # single unit Dense layer to yield the counts output 
+    #         # prediction for this task
+    #         if num_tasks == 1:
+    #             name = "logcounts_predictions"
+    #         else:
+    #             name = "logcounts_predictions_{}".format(i)
+    #         #     name = "logcounts_predictions_{}".format(i)
+    #         # counts_outputs.append(layers.Dense(
+    #         #     units=num_task_tracks, 
+    #         #     name=name)(concat_with_counts_bias_input))
+    #         if orig_multi_loss:
+    #             counts_outputs.append(layers.Dense(
+    #                 units=num_task_tracks, 
+    #                 name=name)(concat_with_counts_bias_input))
+    #         else: 
+    #             counts_outputs.append(layers.Dense(
+    #                 units=num_tasks, 
+    #                 name=name)(concat_with_counts_bias_input))
 
-    # counts output
-    if len(counts_outputs) == 1:
-        return counts_outputs[0]
-    else:
-        return layers.concatenate(
-            counts_outputs, 
-            name="logcounts_predictions", axis=-1)
+    # # counts output
+    # if len(counts_outputs) == 1:
+    #     return counts_outputs[0]
+    # else:
+    #     return layers.concatenate(
+    #         counts_outputs, 
+    #         name="logcounts_predictions", axis=-1)
 
 
 def load_params(params):
@@ -628,10 +648,10 @@ def BPNet(
         tracks_for_each_task.append(total_tracks)
     
     # Step 4.1.2 - conv layer to get pre bias profile prediction
-    profile_head_out = profile_head(
-        syntax_module_out, total_tracks, 
-        profile_head_params['kernel_size'], profile_head_params['padding'], 
-        name_prefix=name_prefix)
+    # profile_head_out = profile_head(
+    #     syntax_module_out, total_tracks, 
+    #     profile_head_params['kernel_size'], profile_head_params['padding'], 
+    #     name_prefix=name_prefix)
     
     # first let's figure out if bias input is required based on 
     # tasks info, this also affects the naming of the profile head
@@ -645,15 +665,15 @@ def BPNet(
         total_bias_tracks += task_bias_tracks[i]
 
     # Step 4.1.3 crop profile head to match output_len
-    if total_bias_tracks == 0:
-        profile_head_name = 'profile_predictions'
-    else:
-        profile_head_name = '{}_profile_head_cropped'.format(name_prefix)
+    # if total_bias_tracks == 0:
+    #     profile_head_name = 'profile_predictions'
+    # else:
+    #     profile_head_name = '{}_profile_head_cropped'.format(name_prefix)
         
         
-    crop_size = int_shape(profile_head_out)[1] // 2 - output_profile_len // 2
-    profile_head_out = layers.Cropping1D(
-        crop_size, name=profile_head_name)(profile_head_out)
+    # crop_size = int_shape(profile_head_out)[1] // 2 - output_profile_len // 2
+    # profile_head_out = layers.Cropping1D(
+    #     crop_size, name=profile_head_name)(profile_head_out)
     
     # Step 4.2 - Counts head (global average pooling)
     if total_bias_tracks == 0:
@@ -685,7 +705,7 @@ def BPNet(
     inputs = [one_hot_input]
     print("total_bias_tracks:",total_bias_tracks)
     if total_bias_tracks == 0:
-        profile_outputs = profile_head_out
+        # profile_outputs = profile_head_out
         logcounts_outputs = counts_head_out  
         
     else:        
@@ -695,32 +715,39 @@ def BPNet(
                 "must match #tasks")
         
         # Step 5.1 - Define the bias input layers 
-        profile_bias_inputs = []
-        counts_bias_inputs = []
-        for i in range(num_tasks):
-            if task_bias_tracks[i] > 0:
-                # profile bias input for task i
-                profile_bias_inputs.append(layers.Input(
-                    shape=(output_profile_len, task_bias_tracks[i]),
-                    name="profile_bias_input_{}".format(i)))
+        # profile_bias_inputs = []
+        # counts_bias_inputs = []
+        # for i in range(num_tasks):
+        #     if task_bias_tracks[i] > 0:
+        #         # profile bias input for task i
+        #         profile_bias_inputs.append(layers.Input(
+        #             shape=(output_profile_len, task_bias_tracks[i]),
+        #             name="profile_bias_input_{}".format(i)))
 
-                # counts bias input for task i
-                counts_bias_inputs.append(layers.Input(
-                    shape=(task_bias_tracks[i]), 
-                    name="counts_bias_input_{}".format(i)))
+        #         # counts bias input for task i
+        #         counts_bias_inputs.append(layers.Input(
+        #             shape=(task_bias_tracks[i]), 
+        #             name="counts_bias_input_{}".format(i)))
                 
-                # append to inputs
-                inputs.append(profile_bias_inputs[i])
-                inputs.append(counts_bias_inputs[i])
-            else:
-                profile_bias_inputs.append(None)    
-                counts_bias_inputs.append(None)
+        #         # append to inputs
+        #         inputs.append(profile_bias_inputs[i])
+        #         inputs.append(counts_bias_inputs[i])
+        #     else:
+        #         profile_bias_inputs.append(None)    
+        #         counts_bias_inputs.append(None)
             
+        resolution=50
+        counts_bias_inputs = layers.Input(
+                    shape=(1600//resolution), 
+                    name="counts_bias_input")
+        inputs.append(counts_bias_inputs)
+        # Step 5.3 - account for counts bias
+        
         # Step 5.2 - account for profile bias
-        profile_outputs = profile_bias_module(
-            profile_head_out, profile_bias_inputs, tasks, 
-            kernel_sizes=profile_bias_module_params['kernel_sizes'], 
-            name_prefix=name_prefix)
+        # profile_outputs = profile_bias_module(
+        #     profile_head_out, profile_bias_inputs, tasks, 
+        #     kernel_sizes=profile_bias_module_params['kernel_sizes'], 
+        #     name_prefix=name_prefix)
         
     
         # Step 5.3 - account for counts bias
@@ -734,14 +761,9 @@ def BPNet(
     #        'output_profile_len':output_profile_len,\
     #        'loss_weights':loss_weights,\
     #        'inputs':inputs, 'outputs':[profile_outputs, logcounts_outputs]})
-    return CustomModel(num_tasks,
-                        total_tracks, 
-                        tracks_for_each_task, 
-                        output_profile_len, 
-                        loss_weights, 
-                        counts_loss,
-                        orig_multi_loss,
-                        inputs=inputs, 
-                        outputs=[profile_outputs, logcounts_outputs])
-
+    model = tf.keras.models.Model(
+        inputs=[inputs],
+        outputs=[logcounts_outputs]
+    )
+    return model
 

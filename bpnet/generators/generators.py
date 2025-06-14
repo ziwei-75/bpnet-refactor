@@ -1080,8 +1080,11 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
 
             output_start = start - seq_start
             output_end = end - seq_start
-            assert output_start > 0
-            assert output_end > 0
+            try:
+                assert output_start > 0
+                assert output_end > 0
+            except:
+                print(row)
 
             o_label[output_start:output_end] = 1
             
@@ -1168,21 +1171,31 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
 
         # Step 4. one hot encode all the sequences in the batch 
         if len(sequences) == profile_predictions.shape[0]:
-            X = sequtils.one_hot_encode(sequences, self._input_flank * 2)
+            try:
+                X = sequtils.one_hot_encode(sequences, self._input_flank * 2)
+            except:
+                print(coords)
+                assert(False)
         else:
             raise NoTracebackException(
                 "Unable to generate enough sequences for the batch")
 
         # we can now compute the log(sum) of the profiles and bias
         # profiles for the entire batch
-        logcounts_predictions = np.log(
-            np.sum(profile_predictions, axis=1) + 1)
+        
+        resolution = 50
+        profile_summed = profile_predictions.sum(-1)
+        logcounts_predictions = np.log(profile_summed.reshape(coords.shape[0], -1, resolution).sum(axis=-1) + 1)
+        
         
         if not self._set_bias_as_zero:
             #skip setting the bias values. Initialization value of zero will be used
             for key in profile_bias_input:
-                counts_bias_input[key] = np.log(
-                    np.sum(profile_bias_input[key], axis=1) + 1)
+                profile_summed = profile_bias_input[key].sum(-1)
+                logcount = np.log(profile_summed.reshape(coords.shape[0], -1, resolution).sum(axis=-1) + 1)
+                counts_bias_input[key] = logcount
+                #counts_bias_input[key] = np.log(
+                    # np.sum(profile_bias_input[key], axis=1) + 1)
         
         # inputs to train, val & test
         # 'coordinates', 'jitters', 'index', 'status' & 'rev_comp'
@@ -1199,15 +1212,15 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             'sequence': X, 
             'coordinates': np.array(coordinates)}
 
-        # add profile bias input
-        for key in profile_bias_input:
-            _key = 'profile_bias_input_' + str(key)
-            inputs[_key] = profile_bias_input[key]
+        # # add profile bias input
+        # for key in profile_bias_input:
+        #     _key = 'profile_bias_input_' + str(key)
+        #     inputs[_key] = profile_bias_input[key]
 
         # add counts bias input
-        for key in counts_bias_input:
-            _key = 'counts_bias_input_' + str(key)
-            inputs[_key] = counts_bias_input[key]
+        # for key in counts_bias_input:
+        # _key = 'counts_bias_input_' + str(key)
+        inputs['counts_bias_input'] = counts_bias_input[0]
                                           
         # in 'train' mode we add some extras to track all the
         # loci used in every batch of training
@@ -1219,19 +1232,22 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         
         # in 'train' and 'val' mode we need outputs as well     
         if self._mode == 'train' or self._mode == 'val':
-            outputs = {
-                'profile_predictions': profile_predictions,
-                'logcounts_predictions': logcounts_predictions}
+            inputs = [inputs['sequence'],inputs['counts_bias_input']]
+            # outputs = {
+            #     # 'profile_predictions': profile_predictions,
+            #     'logcounts_predictions': logcounts_predictions}
 
-            return (inputs, outputs, weights)
+            return (inputs, logcounts_predictions)
 
         # in 'test' mode we only return inputs
         elif self._mode == 'test':
             # we add the true profiles & counts so we can use those to
             # compute metrics
-            inputs['true_profiles'] = profile_predictions
-            inputs['true_logcounts'] = logcounts_predictions
+            #inputs['true_profiles'] = profile_predictions
+            inputs['logcounts_predictions'] = logcounts_predictions
             inputs['rev_comp'] = coords['rev_comp'].values # send this for rev comp averaging
+            #inputs = [inputs['sequence'],inputs['multiscaled_counts_bias_input_0']]
+            #outputs = [outputs['multiscaled_logcounts']]
             return inputs
 
 

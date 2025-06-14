@@ -322,7 +322,7 @@ def one_hot_encode(sequences, seq_length):
     _sequences = ''.join(sequences)
     
     # Step 2. translate the alphabet to a string of digits
-    transtab = str.maketrans('ACGTNYRMSWK', '01234444444')    
+    transtab = str.maketrans('ACGTNYRMSWKB', '012344444444')    
     sequences_trans = _sequences.translate(transtab)
     
     # Step 3. convert to list of ints
