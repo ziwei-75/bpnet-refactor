@@ -302,7 +302,7 @@ def counts_head(
                                name='counts_dropout_{}'.format(i))(x)
             
     # the final Dense layer with linear activation and no dropout
-    output = layers.Dense(32,name=name)(x)
+    output = layers.Dense(20,name=name)(x)
     return output
     # return layers.Dense(units[-1], name=name)(x)
 
@@ -622,22 +622,38 @@ def BPNet(
      counts_loss) = load_params(bpnet_params)    
 
     # Step 1 - sequence input
-    one_hot_input = layers.Input(shape=(input_len, 5), name='sequence')
+    one_hot_input1 = layers.Input(shape=(input_len, 4), name='sequence1')
+    one_hot_input2 = layers.Input(shape=(input_len, 4), name='sequence2')
     
     # Step 2 - Motif module (one or more conv layers)
-    motif_module_out = motif_module(
-        one_hot_input, motif_module_params['filters'], 
+    motif_module_out1 = motif_module(
+        one_hot_input1, motif_module_params['filters'], 
         motif_module_params['kernel_sizes'], motif_module_params['padding'], 
-        name_prefix=name_prefix)
+        name_prefix=name_prefix+'1')
     
     # Step 3 - Syntax module (all dilation layers)
-    syntax_module_out = syntax_module(
-        motif_module_out, syntax_module_params['num_dilation_layers'], 
+    syntax_module_out1 = syntax_module(
+        motif_module_out1, syntax_module_params['num_dilation_layers'], 
         syntax_module_params['filters'], syntax_module_params['kernel_size'],
         syntax_module_params['padding'], 
         syntax_module_params['pre_activation_residual_unit'], 
-        name_prefix=name_prefix)
+        name_prefix=name_prefix+'1')
 
+    motif_module_out2 = motif_module(
+        one_hot_input2, motif_module_params['filters'], 
+        motif_module_params['kernel_sizes'], motif_module_params['padding'], 
+        name_prefix=name_prefix+'2')
+    
+    # Step 3 - Syntax module (all dilation layers)
+    syntax_module_out2 = syntax_module(
+        motif_module_out2, syntax_module_params['num_dilation_layers'], 
+        syntax_module_params['filters'], syntax_module_params['kernel_size'],
+        syntax_module_params['padding'], 
+        syntax_module_params['pre_activation_residual_unit'], 
+        name_prefix=name_prefix+'2')
+    
+    syntax_module_out = tf.keras.layers.Concatenate(axis=2)([syntax_module_out1, syntax_module_out2])
+    print(syntax_module_out)
     # Step 4.1 - Profile head (large conv kernel)
     # Step 4.1.1 - get total number of output tracks across all tasks
     num_tasks = len(list(tasks.keys()))
@@ -702,7 +718,7 @@ def BPNet(
     # Step 5 - Bias Input
     # if the tasks have no bias tracks then profile_head and 
     # counts_head are the outputs of the model
-    inputs = [one_hot_input]
+    inputs = [one_hot_input1,one_hot_input2]
     print("total_bias_tracks:",total_bias_tracks)
     if total_bias_tracks == 0:
         # profile_outputs = profile_head_out
@@ -738,7 +754,7 @@ def BPNet(
             
         resolution=50
         counts_bias_inputs = layers.Input(
-                    shape=(1600//resolution), 
+                    shape=(1000//resolution), 
                     name="counts_bias_input")
         inputs.append(counts_bias_inputs)
         # Step 5.3 - account for counts bias

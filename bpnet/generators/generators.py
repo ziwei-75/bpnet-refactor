@@ -1009,7 +1009,9 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
 
         output_labels = []
 
-        sequences = []  
+        sequences1 = []  
+
+        sequences2 = []  
         
         # list of chromosome start/end coordinates for the batch
         coordinates = []
@@ -1058,38 +1060,48 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             chrom = row['chrom']
             # we use self._input_flank here and not self._output_flank because
             # input_seq_len is different from output_len
-            # start = row['pos'] - self._input_flank + jitter
-            # end = row['pos'] + self._input_flank + jitter
+            start = row['pos'] - self._input_flank + jitter
+            end = row['pos'] + self._input_flank + jitter
+            seq1 = fasta_ref[chrom][start:end].seq.upper()
 
-            seq_chromo = row['chrom2']
-            seq_start = row['pos2'] - self._input_flank + jitter
-            seq_end = row['pos2'] + self._input_flank + jitter
-            seq = fasta_ref[seq_chromo][seq_start:seq_end].seq.upper()
-            assert seq_chromo == chrom
+            chrom2 = row['chrom2']
+            start2 = row['pos2'] - self._input_flank + jitter
+            end2 = row['pos2'] + self._input_flank + jitter
+            seq2 = fasta_ref[chrom2][start2:end2].seq.upper()
+
+            # assert row['chrom'] == row['chrom2']
+
+            # seq_chromo = row['chrom2']
+            # seq_start = row['pos2'] - self._input_flank + jitter
+            # seq_end = row['pos2'] + self._input_flank + jitter
+            # seq = fasta_ref[seq_chromo][seq_start:seq_end].seq.upper()
+            # 
             
             if row['rev_comp']==1:
-                seq = sequtils.reverse_complement_of_sequences([seq])[0]
+                seq1 = sequtils.reverse_complement_of_sequences([seq1])[0]
+                seq2 = sequtils.reverse_complement_of_sequences([seq2])[0]
 
             # collect all the sequences into a list
-            sequences.append(seq)
+            sequences1.append(seq1)
+            sequences2.append(seq2)
 
-            o_label = np.zeros(len(seq))
+            # o_label = np.zeros(len(seq))
             
             start = row['pos'] - self._output_flank + jitter
             end = row['pos'] + self._output_flank + jitter
 
-            output_start = start - seq_start
-            output_end = end - seq_start
-            try:
-                assert output_start > 0
-                assert output_end > 0
-            except:
-                print(row)
+            # output_start = start - seq_start
+            # output_end = end - seq_start
+            # try:
+            #     assert output_start > 0
+            #     assert output_end > 0
+            # except:
+            #     print(row)
 
-            o_label[output_start:output_end] = 1
+            #o_label[output_start:output_end] = 1
             
             # record the start/end coordinates for this sample
-            coordinates.append((chrom, start, end, seq_chromo, seq_start,seq_end ))
+            coordinates.append((chrom, start, end, chrom2, start2,end2 ))
                                     
             # track profile tracks across all tasks
             profile_track_idx = 0
@@ -1111,12 +1123,12 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
                     profile_track_idx += 1
 
                 if row['rev_comp']==1:
-                    o_label = o_label[::-1]
+                    
                     profile_predictions[rowCnt, :, profile_track_idx-cur_num_signal_files:profile_track_idx] = \
                         sequtils.reverse_complement_of_profiles(profile_predictions[rowCnt:rowCnt+1, :, 
                                                                                     profile_track_idx-cur_num_signal_files:profile_track_idx],
                                                                 stranded=(cur_num_signal_files==2))
-                output_labels.append(o_label)
+                
                 cur_num_bias_files = len(bias_files[i])
                 # Step 3. get the bias values
                 #skip setting the bias values. Initialization value of zero will be used
@@ -1170,9 +1182,10 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         fasta_ref.close()
 
         # Step 4. one hot encode all the sequences in the batch 
-        if len(sequences) == profile_predictions.shape[0]:
+        if len(sequences1) == profile_predictions.shape[0]:
             try:
-                X = sequtils.one_hot_encode(sequences, self._input_flank * 2)
+                sequences1 = sequtils.one_hot_encode(sequences1, self._input_flank * 2)
+                sequences2 = sequtils.one_hot_encode(sequences2, self._input_flank * 2)
             except:
                 print(coords)
                 assert(False)
@@ -1206,10 +1219,11 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         # 'status' refers to whether the data sample is a +ve (1)
         # or -ve (-1) example and is used by the attribution
         # prior loss function        
-        output_labels = np.expand_dims(np.array(output_labels),axis=2)
-        X = np.concatenate([X,output_labels],axis=2)
+        
+        
         inputs = {
-            'sequence': X, 
+            'sequence1': sequences1,
+            'sequence2': sequences2,
             'coordinates': np.array(coordinates)}
 
         # # add profile bias input
@@ -1232,7 +1246,8 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         
         # in 'train' and 'val' mode we need outputs as well     
         if self._mode == 'train' or self._mode == 'val':
-            inputs = [inputs['sequence'],inputs['counts_bias_input']]
+            inputs = [inputs['sequence1'], inputs['sequence2'],
+                      inputs['counts_bias_input']]
             # outputs = {
             #     # 'profile_predictions': profile_predictions,
             #     'logcounts_predictions': logcounts_predictions}
