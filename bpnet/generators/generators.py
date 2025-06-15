@@ -720,7 +720,7 @@ class MSequenceGenerator:
             # of positives
             df = data[
                 i * samples_per_process: 
-                (i + 1) * samples_per_process][['chrom', 'pos','chrom2', 'pos2',
+                (i + 1) * samples_per_process][['chrom', 'pos',
                                                 'weight',]].copy()
                 
             num_batches.append(len(df) // self._batch_size)
@@ -1007,6 +1007,8 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         # encoded together as a single sequence after iterating
         # over the batch
 
+        atac_bw_list = []
+
         output_labels = []
 
         sequences1 = []  
@@ -1018,6 +1020,7 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
 
         # list of jitter values for the batch coordinates
         jitters = []
+
         
         # list of index values for the batch coordinates
         idxs = coords['idx'].values
@@ -1043,6 +1046,7 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
                                           
         # iterate over the batch
         rowCnt = 0
+
         for _, row in coords.iterrows():
             # randomly set a jitter value to move the peak summit 
             # slightly away from the exact center (only for samples 
@@ -1064,10 +1068,18 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             end = row['pos'] + self._input_flank + jitter
             seq1 = fasta_ref[chrom][start:end].seq.upper()
 
-            chrom2 = row['chrom2']
-            start2 = row['pos2'] - self._input_flank + jitter
-            end2 = row['pos2'] + self._input_flank + jitter
-            seq2 = fasta_ref[chrom2][start2:end2].seq.upper()
+            atac_bw = "/oak/stanford/groups/akundaje/ziwei75/reporterNet/data/atac/k562/ENCFF874FUM.bigWig"
+            atac_bw = pyBigWig.open(atac_bw)
+            atac_signal = np.nan_to_num(atac_bw.values(chrom, start, end)) + 1
+            atac_signal = atac_signal/np.sum(atac_signal)
+            smooth_kernel = np.array([1] * 21)
+            atac_signal = np.convolve(atac_signal,smooth_kernel,mode='valid')
+            
+
+            # chrom2 = row['chrom2']
+            # start2 = row['pos2'] - self._input_flank + jitter
+            # end2 = row['pos2'] + self._input_flank + jitter
+            # seq2 = fasta_ref[chrom2][start2:end2].seq.upper()
 
             # assert row['chrom'] == row['chrom2']
 
@@ -1079,16 +1091,19 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             
             if row['rev_comp']==1:
                 seq1 = sequtils.reverse_complement_of_sequences([seq1])[0]
-                seq2 = sequtils.reverse_complement_of_sequences([seq2])[0]
+                atac_signal = atac_signal[::-1]
+                # seq2 = sequtils.reverse_complement_of_sequences([seq2])[0]
 
+            atac_bw_list.append(atac_signal)
             # collect all the sequences into a list
             sequences1.append(seq1)
-            sequences2.append(seq2)
+            # sequences2.append(seq2)
 
             # o_label = np.zeros(len(seq))
             
             start = row['pos'] - self._output_flank + jitter
             end = row['pos'] + self._output_flank + jitter
+            
 
             # output_start = start - seq_start
             # output_end = end - seq_start
@@ -1101,7 +1116,7 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             #o_label[output_start:output_end] = 1
             
             # record the start/end coordinates for this sample
-            coordinates.append((chrom, start, end, chrom2, start2,end2 ))
+            coordinates.append((chrom, start, end))
                                     
             # track profile tracks across all tasks
             profile_track_idx = 0
@@ -1185,7 +1200,7 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         if len(sequences1) == profile_predictions.shape[0]:
             try:
                 sequences1 = sequtils.one_hot_encode(sequences1, self._input_flank * 2)
-                sequences2 = sequtils.one_hot_encode(sequences2, self._input_flank * 2)
+                # sequences2 = sequtils.one_hot_encode(sequences2, self._input_flank * 2)
             except:
                 print(coords)
                 assert(False)
@@ -1223,7 +1238,7 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         
         inputs = {
             'sequence1': sequences1,
-            'sequence2': sequences2,
+            'atac_signal': np.array(atac_bw_list),
             'coordinates': np.array(coordinates)}
 
         # # add profile bias input
@@ -1246,7 +1261,8 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         
         # in 'train' and 'val' mode we need outputs as well     
         if self._mode == 'train' or self._mode == 'val':
-            inputs = [inputs['sequence1'], inputs['sequence2'],
+            inputs = [inputs['sequence1'],
+                      inputs['atac_signal'],
                       inputs['counts_bias_input']]
             # outputs = {
             #     # 'profile_predictions': profile_predictions,

@@ -31,7 +31,7 @@ def _crop_layer(layer, new_size):
     """
     crop_size = int_shape(layer)[1] // 2 - new_size // 2
     return layers.Cropping1D(
-        crop_size, name=layer.name.split('/')[0] + '_cr')(layer)
+        crop_size, name=layer.name.split('/')[0].replace(":", "_") + '_cr')(layer)
 
 
 def _get_num_bias_tracks_for_task(task):
@@ -146,6 +146,7 @@ def motif_module(
 
 def syntax_module(
     motif_module_output,
+    atac_signal,
     num_dilation_layers=\
         bpnetdefaults.SYNTAX_MODULE_PARAMS['num_dilation_layers'], 
     filters=bpnetdefaults.SYNTAX_MODULE_PARAMS['filters'], 
@@ -183,12 +184,24 @@ def syntax_module(
     """
                            
     # first layer for the residual connections
+
     x = motif_module_output
+
+    x_activated = layers.ReLU(name=x.name.split('/')[0]+'_relu')(x)
+
+    atac_scaled = atac_signal
+    # atac_scaled = tf.math.log(atac_siganl + 1.0)
+    atac_scaled = tf.expand_dims(atac_scaled, axis=-1)
+
+    atac_scaled = tf.tile(atac_scaled, multiples=[1, 1, 512]) 
+
+    x_activated = x_activated * atac_scaled
 
     for i in range(1, num_dilation_layers + 1):     
         # apply relu to 'x' before applying dilated conv
         # (activation before the weights layer in the residual unit)
-        x_activated = layers.ReLU(name=x.name.split('/')[0]+'_relu')(x)
+        if i != 1:
+            x_activated = layers.ReLU(name=x.name.split('/')[0]+'_relu')(x)
             
         # dilated convolution
         conv_output_without_activation = layers.Conv1D(
@@ -622,38 +635,23 @@ def BPNet(
      counts_loss) = load_params(bpnet_params)    
 
     # Step 1 - sequence input
-    one_hot_input1 = layers.Input(shape=(input_len, 4), name='sequence1')
-    one_hot_input2 = layers.Input(shape=(input_len, 4), name='sequence2')
+    one_hot_input = layers.Input(shape=(input_len, 4), name='sequence1')
+    atac_signal = layers.Input(shape=(input_len-20,), name='atac_signal')
     
     # Step 2 - Motif module (one or more conv layers)
     motif_module_out1 = motif_module(
-        one_hot_input1, motif_module_params['filters'], 
+        one_hot_input, motif_module_params['filters'], 
         motif_module_params['kernel_sizes'], motif_module_params['padding'], 
         name_prefix=name_prefix+'1')
     
     # Step 3 - Syntax module (all dilation layers)
-    syntax_module_out1 = syntax_module(
-        motif_module_out1, syntax_module_params['num_dilation_layers'], 
+    syntax_module_out = syntax_module(
+        motif_module_out1,atac_signal, syntax_module_params['num_dilation_layers'], 
         syntax_module_params['filters'], syntax_module_params['kernel_size'],
         syntax_module_params['padding'], 
         syntax_module_params['pre_activation_residual_unit'], 
         name_prefix=name_prefix+'1')
 
-    motif_module_out2 = motif_module(
-        one_hot_input2, motif_module_params['filters'], 
-        motif_module_params['kernel_sizes'], motif_module_params['padding'], 
-        name_prefix=name_prefix+'2')
-    
-    # Step 3 - Syntax module (all dilation layers)
-    syntax_module_out2 = syntax_module(
-        motif_module_out2, syntax_module_params['num_dilation_layers'], 
-        syntax_module_params['filters'], syntax_module_params['kernel_size'],
-        syntax_module_params['padding'], 
-        syntax_module_params['pre_activation_residual_unit'], 
-        name_prefix=name_prefix+'2')
-    
-    syntax_module_out = tf.keras.layers.Concatenate(axis=2)([syntax_module_out1, syntax_module_out2])
-    print(syntax_module_out)
     # Step 4.1 - Profile head (large conv kernel)
     # Step 4.1.1 - get total number of output tracks across all tasks
     num_tasks = len(list(tasks.keys()))
@@ -718,7 +716,7 @@ def BPNet(
     # Step 5 - Bias Input
     # if the tasks have no bias tracks then profile_head and 
     # counts_head are the outputs of the model
-    inputs = [one_hot_input1,one_hot_input2]
+    inputs = [one_hot_input, atac_signal]
     print("total_bias_tracks:",total_bias_tracks)
     if total_bias_tracks == 0:
         # profile_outputs = profile_head_out

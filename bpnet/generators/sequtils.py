@@ -156,20 +156,20 @@ def getPeakPositions(tasks, chrom_sizes, flank,
                     
                 # create new column for peak pos
                 peaks_df['pos'] = peaks_df['st'] + peaks_df['summit']
-                peaks_df['pos2'] = peaks_df['st2'] + peaks_df['summit2']
+                # peaks_df['pos2'] = peaks_df['st2'] + peaks_df['summit2']
 
                 # compute left flank coordinates of the input sequences 
                 # (including the allowed jitter)
                 peaks_df['start_coord'] = (peaks_df['pos'] - flank).astype(int)
-                peaks_df['start_coord2'] = (peaks_df['pos2'] - flank).astype(int)
+                # peaks_df['start_coord2'] = (peaks_df['pos2'] - flank).astype(int)
 
                 # compute right flank coordinates of the input sequences 
                 # (including the allowed jitter)
                 peaks_df['end_coord'] = (peaks_df['pos'] + flank).astype(int)
-                peaks_df['end_coord2'] = (peaks_df['pos2'] + flank).astype(int)
+                # peaks_df['end_coord2'] = (peaks_df['pos2'] + flank).astype(int)
 
                 # filter out rows where the left flank coordinate is < 0
-                peaks_df = peaks_df[peaks_df['start_coord2'] >= 0]
+                peaks_df = peaks_df[peaks_df['start_coord'] >= 0]
 
                 # --->>> create a new column for chrom size
                 peaks_df["chrom_size"] = peaks_df['chrom'].apply(
@@ -178,11 +178,11 @@ def getPeakPositions(tasks, chrom_sizes, flank,
                 # filter out rows where the right flank coordinate goes beyond
                 # chromosome size
                 peaks_df = peaks_df[
-                    peaks_df['end_coord2'] <= peaks_df['chrom_size']]
+                    peaks_df['end_coord'] <= peaks_df['chrom_size']]
 
                 # sort based on chromosome number and right flank coordinate
                 peaks_df = peaks_df.sort_values(
-                    ['chrom', 'end_coord2']).reset_index(drop=True)
+                    ['chrom', 'end_coord']).reset_index(drop=True)
 
                 # set num_foreground in case of foreground
                 if loci_key == 'loci':
@@ -223,7 +223,7 @@ def getPeakPositions(tasks, chrom_sizes, flank,
                 
                 # append to all peaks data frame
                 allPeaks = pd.concat([allPeaks, peaks_df[
-                    ['chrom', 'start_coord', 'end_coord', 'pos','chrom2', 'start_coord2', 'end_coord2', 'pos2', 'weight']]])
+                    ['chrom', 'start_coord', 'end_coord', 'pos', 'weight']]])
 
                 allPeaks = allPeaks.reset_index(drop=True)
                 
