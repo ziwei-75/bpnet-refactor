@@ -1007,6 +1007,8 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         # encoded together as a single sequence after iterating
         # over the batch
 
+        gc_content_list = []
+
         atac_bw_list = []
 
         output_labels = []
@@ -1076,6 +1078,20 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             atac_signal = np.convolve(atac_signal,smooth_kernel,mode='valid')
             
 
+            def gc_content_sliding_window(seq, window_size=25, stride=25):
+                seq = seq.upper()
+                gc_contents = []
+
+                for i in range(0, len(seq) - window_size + 1, stride):
+                    window = seq[i:i+window_size]
+                    gc_count = window.count('G') + window.count('C')
+                    gc_contents.append(gc_count / window_size)
+
+                return gc_contents
+            
+            gc_contents = gc_content_sliding_window(seq1)
+
+
             # chrom2 = row['chrom2']
             # start2 = row['pos2'] - self._input_flank + jitter
             # end2 = row['pos2'] + self._input_flank + jitter
@@ -1092,19 +1108,20 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             if row['rev_comp']==1:
                 seq1 = sequtils.reverse_complement_of_sequences([seq1])[0]
                 atac_signal = atac_signal[::-1]
+                gc_contents = gc_contents[::-1]
                 # seq2 = sequtils.reverse_complement_of_sequences([seq2])[0]
 
             atac_bw_list.append(atac_signal)
             # collect all the sequences into a list
             sequences1.append(seq1)
+
+            gc_content_list.append(gc_contents)
             # sequences2.append(seq2)
 
             # o_label = np.zeros(len(seq))
             
             start = row['pos'] - self._output_flank + jitter
             end = row['pos'] + self._output_flank + jitter
-            
-
             # output_start = start - seq_start
             # output_end = end - seq_start
             # try:
@@ -1239,7 +1256,8 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         inputs = {
             'sequence1': sequences1,
             'atac_signal': np.array(atac_bw_list),
-            'coordinates': np.array(coordinates)}
+            'coordinates': np.array(coordinates),
+            'gc_contents': np.array(gc_content_list),}
 
         # # add profile bias input
         # for key in profile_bias_input:
@@ -1262,7 +1280,7 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         # in 'train' and 'val' mode we need outputs as well     
         if self._mode == 'train' or self._mode == 'val':
             inputs = [inputs['sequence1'],
-                      inputs['atac_signal'],
+                      inputs['gc_contents'],
                       inputs['counts_bias_input']]
             # outputs = {
             #     # 'profile_predictions': profile_predictions,

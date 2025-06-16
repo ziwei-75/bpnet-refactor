@@ -146,7 +146,6 @@ def motif_module(
 
 def syntax_module(
     motif_module_output,
-    atac_signal,
     num_dilation_layers=\
         bpnetdefaults.SYNTAX_MODULE_PARAMS['num_dilation_layers'], 
     filters=bpnetdefaults.SYNTAX_MODULE_PARAMS['filters'], 
@@ -187,21 +186,20 @@ def syntax_module(
 
     x = motif_module_output
 
-    x_activated = layers.ReLU(name=x.name.split('/')[0]+'_relu')(x)
+    # x_activated = layers.ReLU(name=x.name.split('/')[0]+'_relu')(x)
 
-    atac_scaled = atac_signal
-    # atac_scaled = tf.math.log(atac_siganl + 1.0)
-    atac_scaled = tf.expand_dims(atac_scaled, axis=-1)
+    # atac_scaled = atac_signal
+    # # atac_scaled = tf.math.log(atac_siganl + 1.0)
+    # atac_scaled = tf.expand_dims(atac_scaled, axis=-1)
 
-    atac_scaled = tf.tile(atac_scaled, multiples=[1, 1, 512]) 
+    # atac_scaled = tf.tile(atac_scaled, multiples=[1, 1, 512]) 
 
-    x_activated = x_activated * atac_scaled
+    # x_activated = x_activated * atac_scaled
 
     for i in range(1, num_dilation_layers + 1):     
         # apply relu to 'x' before applying dilated conv
         # (activation before the weights layer in the residual unit)
-        if i != 1:
-            x_activated = layers.ReLU(name=x.name.split('/')[0]+'_relu')(x)
+        x_activated = layers.ReLU(name=x.name.split('/')[0]+'_relu')(x)
             
         # dilated convolution
         conv_output_without_activation = layers.Conv1D(
@@ -265,7 +263,7 @@ def profile_head(
 
 
 def counts_head(
-    syntax_module_out, name, units=bpnetdefaults.COUNTS_HEAD_PARAMS['units'], 
+    syntax_module_out,gc_content, name, units=bpnetdefaults.COUNTS_HEAD_PARAMS['units'], 
     dropouts=bpnetdefaults.COUNTS_HEAD_PARAMS['dropouts'],
     activations=bpnetdefaults.COUNTS_HEAD_PARAMS['activations'],    
     name_prefix=None):
@@ -313,7 +311,8 @@ def counts_head(
         if dropouts[i] > 0.0:
             x = layers.Dropout(dropouts[i],
                                name='counts_dropout_{}'.format(i))(x)
-            
+
+    x = layers.concatenate([x, gc_content], name='counts_concat_gc_content')
     # the final Dense layer with linear activation and no dropout
     output = layers.Dense(20,name=name)(x)
     return output
@@ -636,17 +635,18 @@ def BPNet(
 
     # Step 1 - sequence input
     one_hot_input = layers.Input(shape=(input_len, 4), name='sequence1')
-    atac_signal = layers.Input(shape=(input_len-20,), name='atac_signal')
-    
+    # atac_signal = layers.Input(shape=(input_len-20,), name='atac_signal')
+    gc_content = layers.Input(shape=(204,), name='gc_content')
+
     # Step 2 - Motif module (one or more conv layers)
-    motif_module_out1 = motif_module(
+    motif_module_out = motif_module(
         one_hot_input, motif_module_params['filters'], 
         motif_module_params['kernel_sizes'], motif_module_params['padding'], 
         name_prefix=name_prefix+'1')
     
     # Step 3 - Syntax module (all dilation layers)
     syntax_module_out = syntax_module(
-        motif_module_out1,atac_signal, syntax_module_params['num_dilation_layers'], 
+        motif_module_out, syntax_module_params['num_dilation_layers'], 
         syntax_module_params['filters'], syntax_module_params['kernel_size'],
         syntax_module_params['padding'], 
         syntax_module_params['pre_activation_residual_unit'], 
@@ -709,14 +709,14 @@ def BPNet(
             units[-1] = num_tasks
             
     counts_head_out = counts_head(
-        syntax_module_out, counts_head_name, units, 
+        syntax_module_out, gc_content, counts_head_name, units, 
         counts_head_params['dropouts'], counts_head_params['activations'],
         name_prefix=name_prefix)
     
     # Step 5 - Bias Input
     # if the tasks have no bias tracks then profile_head and 
     # counts_head are the outputs of the model
-    inputs = [one_hot_input, atac_signal]
+    inputs = [one_hot_input,gc_content]
     print("total_bias_tracks:",total_bias_tracks)
     if total_bias_tracks == 0:
         # profile_outputs = profile_head_out
