@@ -1149,7 +1149,7 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         if len(sequences) == profile_predictions.shape[0]:
             X = sequtils.one_hot_encode(sequences, self._input_flank * 2)
             ### collapse to GC
-            #X = np.expand_dims(X[:, :, 1] + X[:, :, 2],axis=2)
+            gc_input = np.expand_dims(X[:, :, 1] + X[:, :, 2],axis=2)
         else:
             raise NoTracebackException(
                 "Unable to generate enough sequences for the batch")
@@ -1215,7 +1215,7 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             outputs = {
                 # 'profile_predictions': profile_predictions,
                 'multiscaled_logcounts': multiscaled_logcounts}
-            inputs = [inputs['sequence'],inputs['multiscaled_counts_bias_input_0']]
+            inputs = [gc_input,inputs['multiscaled_counts_bias_input_0']]
             outputs = [outputs['multiscaled_logcounts']]
             return (inputs, outputs)
 

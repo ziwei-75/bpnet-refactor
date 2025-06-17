@@ -658,7 +658,8 @@ def BPNet(
      counts_loss) = load_params(bpnet_params)    
 
     # Step 1 - sequence input
-    one_hot_input = layers.Input(shape=(input_len, 1), name='sequence')
+    one_hot_input = layers.Input(shape=(input_len, 4), name='sequence')
+    gc_input = layers.Input(shape=(input_len, 1), name='gc_input')
     
     # Step 2 - Motif module (one or more conv layers)
     motif_module_out = motif_module(
@@ -738,7 +739,11 @@ def BPNet(
     # Step 5 - Bias Input
     # if the tasks have no bias tracks then profile_head and 
     # counts_head are the outputs of the model
-    inputs = [one_hot_input]
+    inputs = [one_hot_input, gc_input]
+    from tensorflow.keras.models import load_model
+    bias_model="/oak/stanford/groups/akundaje/ziwei75/histone_mark/exp/K562_h3k27ac/model_5k_1k_atac_gc_bias_model/model_split000"
+    bias_model = load_model(bias_model)
+    bias_model.trainable = False
     print("total_bias_tracks:",total_bias_tracks)
     if total_bias_tracks == 0:
         #profile_outputs = profile_head_out
@@ -786,10 +791,13 @@ def BPNet(
         inputs.append(counts_bias_inputs)
         # Step 5.3 - account for counts bias
         
-        logcounts_outputs = counts_bias_module(
-            counts_head_out, counts_bias_inputs, tasks, 
-            name_prefix=name_prefix,orig_multi_loss=orig_multi_loss)
-        
+
+        bias_prediction = bias_model((gc_input,counts_bias_inputs))
+        logcounts_outputs = layers.Add()([bias_prediction,counts_head_out])
+    # logcounts_outputs = counts_bias_module(
+    #     counts_head_out, counts_bias_inputs, tasks, 
+    #     name_prefix=name_prefix,orig_multi_loss=orig_multi_loss)
+    
     model = tf.keras.models.Model(
         inputs=[inputs],
         outputs=[logcounts_outputs]
