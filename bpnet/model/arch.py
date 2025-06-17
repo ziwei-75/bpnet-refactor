@@ -302,7 +302,7 @@ def counts_head(
                                name='counts_dropout_{}'.format(i))(x)
             
     # the final Dense layer with linear activation and no dropout
-    output = layers.Dense(32,name=name)(x)
+    output = layers.Dense(20,name=name)(x)
     return output
     # return layers.Dense(units[-1], name=name)(x)
 
@@ -622,7 +622,7 @@ def BPNet(
      counts_loss) = load_params(bpnet_params)    
 
     # Step 1 - sequence input
-    one_hot_input = layers.Input(shape=(input_len, 5), name='sequence')
+    one_hot_input = layers.Input(shape=(input_len, 4), name='sequence')
     
     # Step 2 - Motif module (one or more conv layers)
     motif_module_out = motif_module(
@@ -738,7 +738,7 @@ def BPNet(
             
         resolution=50
         counts_bias_inputs = layers.Input(
-                    shape=(1600//resolution), 
+                    shape=(1000//resolution), 
                     name="counts_bias_input")
         inputs.append(counts_bias_inputs)
         # Step 5.3 - account for counts bias

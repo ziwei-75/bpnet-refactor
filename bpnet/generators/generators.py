@@ -1056,14 +1056,18 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
                                           
             # Step 1. get the sequence 
             chrom = row['chrom']
-            # we use self._input_flank here and not self._output_flank because
-            # input_seq_len is different from output_len
-            # start = row['pos'] - self._input_flank + jitter
-            # end = row['pos'] + self._input_flank + jitter
+            
+            ### uncomment this for getting atac centered sequence
+            # seq_chromo = row['chrom2']
+            # seq_start = row['pos2'] - self._input_flank + jitter
+            # seq_end = row['pos2'] + self._input_flank + jitter
+            # seq = fasta_ref[seq_chromo][seq_start:seq_end].seq.upper()
+            # assert seq_chromo == chrom
 
-            seq_chromo = row['chrom2']
-            seq_start = row['pos2'] - self._input_flank + jitter
-            seq_end = row['pos2'] + self._input_flank + jitter
+            ### uncomment this for getting histone centered sequence
+            seq_chromo = row['chrom']
+            seq_start = row['pos'] - self._input_flank + jitter
+            seq_end = row['pos'] + self._input_flank + jitter
             seq = fasta_ref[seq_chromo][seq_start:seq_end].seq.upper()
             assert seq_chromo == chrom
             
@@ -1073,26 +1077,47 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             # collect all the sequences into a list
             sequences.append(seq)
 
+            ### uncomment to get the histone label
+            # o_label = np.zeros(len(seq))
+            
+            # start = row['pos'] - self._output_flank + jitter
+            # end = row['pos'] + self._output_flank + jitter
+
+            # output_start = start - seq_start
+            # output_end = end - seq_start
+            # try:
+            #     assert output_start > 0
+            #     assert output_end > 0
+            # except:
+            #     print(row)
+
+            # o_label[output_start:output_end] = 1
+
             o_label = np.zeros(len(seq))
             
-            start = row['pos'] - self._output_flank + jitter
-            end = row['pos'] + self._output_flank + jitter
+            atac_start = row['pos2'] - self._output_flank + jitter
+            atac_end = row['pos2'] + self._output_flank + jitter
 
-            output_start = start - seq_start
-            output_end = end - seq_start
+            atac_start_shifted = atac_start - seq_start
+            atac_end_shifted = atac_end - seq_start
             try:
-                assert output_start > 0
-                assert output_end > 0
+                assert atac_start_shifted > 0
+                assert atac_end_shifted > 0
             except:
                 print(row)
 
-            o_label[output_start:output_end] = 1
+            o_label[atac_start_shifted:atac_end_shifted] = 1
+            
             
             # record the start/end coordinates for this sample
-            coordinates.append((chrom, start, end, seq_chromo, seq_start,seq_end ))
+            #coordinates.append((chrom, start, end, seq_chromo, seq_start,seq_end ))
+            coordinates.append((chrom, atac_start, atac_end, seq_chromo, seq_start,seq_end ))
                                     
             # track profile tracks across all tasks
             profile_track_idx = 0
+
+            start = row['pos'] - self._output_flank + jitter
+            end = row['pos'] + self._output_flank + jitter
 
             # iterate over each task and read the signal and bias
             # values from the bigWig files
@@ -1207,7 +1232,7 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         # or -ve (-1) example and is used by the attribution
         # prior loss function        
         output_labels = np.expand_dims(np.array(output_labels),axis=2)
-        X = np.concatenate([X,output_labels],axis=2)
+        #X = np.concatenate([X,output_labels],axis=2)
         inputs = {
             'sequence': X, 
             'coordinates': np.array(coordinates)}
