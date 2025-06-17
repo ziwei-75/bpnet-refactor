@@ -1148,13 +1148,15 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         # Step 4. one hot encode all the sequences in the batch 
         if len(sequences) == profile_predictions.shape[0]:
             X = sequtils.one_hot_encode(sequences, self._input_flank * 2)
+            ### collapse to GC
+            #X = np.expand_dims(X[:, :, 1] + X[:, :, 2],axis=2)
         else:
             raise NoTracebackException(
                 "Unable to generate enough sequences for the batch")
 
         # we can now compute the log(sum) of the profiles and bias
         # profiles for the entire batch
-        resolution = [50,100,250,500,1000]
+        resolution = [50]
         multiscaled_logcounts = []
         
         profile_summed = profile_predictions.sum(-1)

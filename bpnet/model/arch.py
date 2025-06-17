@@ -658,7 +658,7 @@ def BPNet(
      counts_loss) = load_params(bpnet_params)    
 
     # Step 1 - sequence input
-    one_hot_input = layers.Input(shape=(input_len, 4), name='sequence')
+    one_hot_input = layers.Input(shape=(input_len, 1), name='sequence')
     
     # Step 2 - Motif module (one or more conv layers)
     motif_module_out = motif_module(
