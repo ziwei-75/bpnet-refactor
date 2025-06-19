@@ -719,8 +719,8 @@ class MSequenceGenerator:
             # of positives
             df = data[
                 i * samples_per_process: 
-                (i + 1) * samples_per_process][['chrom', 'pos',
-                                                'weight']].copy()
+                (i + 1) * samples_per_process][['chrom', 'pos','chrom2', 'pos2',
+                                                'weight',]].copy()
                 
             num_batches.append(len(df) // self._batch_size)
             
@@ -1003,6 +1003,8 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         # list of sequences in the batch, these will be one hot
         # encoded together as a single sequence after iterating
         # over the batch
+        output_labels = []
+
         sequences = []  
         
         # list of chromosome start/end coordinates for the batch
@@ -1052,15 +1054,50 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
             chrom = row['chrom']
             # we use self._input_flank here and not self._output_flank because
             # input_seq_len is different from output_len
-            start = row['pos'] - self._input_flank + jitter
-            end = row['pos'] + self._input_flank + jitter
-            seq = fasta_ref[chrom][start:end].seq.upper()
+
+            ### uncomment this for getting atac centered sequence
+            # seq_chromo = row['chrom2']
+            # seq_start = row['pos2'] - self._input_flank + jitter
+            # seq_end = row['pos2'] + self._input_flank + jitter
+            # seq = fasta_ref[seq_chromo][seq_start:seq_end].seq.upper()
+            # assert seq_chromo == chrom
+
+            ### uncomment this for getting histone centered sequence
+            seq_chromo = row['chrom']
+            seq_start = row['pos'] - self._input_flank + jitter
+            seq_end = row['pos'] + self._input_flank + jitter
+            seq = fasta_ref[seq_chromo][seq_start:seq_end].seq.upper()
+            assert seq_chromo == chrom
             
             if row['rev_comp']==1:
                 seq = sequtils.reverse_complement_of_sequences([seq])[0]
 
             # collect all the sequences into a list
             sequences.append(seq)
+
+            o_label = np.zeros(len(seq))
+            
+            atac_start = row['pos2'] - self._output_flank + jitter
+            atac_end = row['pos2'] + self._output_flank + jitter
+
+            atac_start_shifted = atac_start - seq_start
+            atac_end_shifted = atac_end - seq_start
+            try:
+                assert atac_start_shifted > 0
+                assert atac_end_shifted > 0
+            except:
+                print(row)
+
+            o_label[atac_start_shifted:atac_end_shifted] = 1
+
+            if row['rev_comp']==1:
+                o_label = o_label[::-1]
+            
+            output_labels.append(o_label)
+             
+            # record the start/end coordinates for this sample
+            #coordinates.append((chrom, start, end, seq_chromo, seq_start,seq_end ))
+            #coordinates.append((chrom, atac_start, atac_end, seq_chromo, seq_start,seq_end ))
             
             start = row['pos'] - self._output_flank + jitter
             end = row['pos'] + self._output_flank + jitter
@@ -1172,6 +1209,8 @@ class MBPNetSequenceGenerator(MSequenceGenerator):
         # 'status' refers to whether the data sample is a +ve (1)
         # or -ve (-1) example and is used by the attribution
         # prior loss function        
+        output_labels = np.expand_dims(np.array(output_labels),axis=2)
+        X = np.concatenate([X,output_labels],axis=2)
         inputs = {
             'sequence': X, 
             'coordinates': np.array(coordinates)}
