@@ -245,6 +245,10 @@ def shap_scores_argsparser():
     """
     
     parser = argparse.ArgumentParser()
+
+    parser.add_argument('--model-arch-params-json', type=str,
+                        help="path to json file containing params for the "
+                        "model architecture", required=True)
     
     #reference params
     parser.add_argument('--reference-genome', '-g', type=str, required=True,

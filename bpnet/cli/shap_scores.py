@@ -76,13 +76,13 @@ def save_scores(peaks_df, one_hot_sequences, hyp_shap_scores, output_fname):
     coords_end_dset[:] = coords_end
         
     hyp_scores_dset = f.create_dataset(
-        "hyp_scores", (num_examples, seq_len, 4), dtype="f2",
+        "hyp_scores", (num_examples, seq_len, 5), dtype="f2",
         **hdf5plugin.Blosc()
     )
     hyp_scores_dset[:, :, :] = hyp_shap_scores.astype(np.float16)
 
     input_seqs_dset = f.create_dataset(
-        "input_seqs", (num_examples, seq_len, 4), dtype="i1",
+        "input_seqs", (num_examples, seq_len, 5), dtype="i1",
         **hdf5plugin.Blosc()
     )
     input_seqs_dset[:, :, :] = one_hot_sequences.astype(np.int8)
@@ -93,12 +93,51 @@ def save_scores(peaks_df, one_hot_sequences, hyp_shap_scores, output_fname):
 
 def shap_scores(args, shap_dir):
     # load the model
-    model = load_model(args.model, compile=False)
+    # load the params json file
+    # load the json file
+    import json
+    input_data = args.input_data
+    model_arch_params_json = args.model_arch_params_json
+    #input_data="/oak/stanford/groups/akundaje/ziwei75/histone_mark/src/5k_1k_atac_anchoring_full_prediction/input_data.json"
+    with open(input_data, 'r') as inp_json:
+        try:
+            tasks = json.loads(inp_json.read())
+            # since the json has keys as strings, we convert the 
+            # top level keys to int so we can used them later for
+            # indexing
+            #: dictionary of tasks for training
+            tasks = {int(k): v for k, v in tasks.items()}
+        except json.decoder.JSONDecodeError:
+            raise NoTracebackException(
+                "Unable to load json file {}. Valid json expected. "
+                "Check the file for syntax errors.".format(
+                    input_data))
+                    
+    with open(model_arch_params_json, 'r') as inp_json:
+        try:
+            model_arch_params = json.loads(inp_json.read())
+        except json.decoder.JSONDecodeError:
+            raise NoTracebackException(
+                "Unable to load json file {}. Valid json expected. "
+                "Check the file for syntax errors.".format(
+                    model_arch_params_json))
+
+    from bpnet.model import arch
+    model = arch.BPNet(tasks, 
+                            model_arch_params, 
+                            orig_multi_loss=False, 
+                            name_prefix="main")
+
+                    
+    model.load_weights(args.model+"/weights.h5")
     
     # read all the peaks into a pandas dataframe
     peaks_df = pd.read_csv(args.bed_file, sep='\t', header=None, 
                            names=['chrom', 'st', 'stop', 'name', 'score',
-                                  'strand', 'signalValue', 'p', 'q', 'summit'])
+                                  'strand', 'signalValue', 'p', 'q', 'summit',
+                                  'chrom2', 'st2', 'stop2', 'name2', 'score2',
+                                  'strand2', 'signalValue2', 'p2', 'q2', 'summit2',
+                                  ])
 
     if args.chroms is not None:
         # keep only those rows corresponding to the required 
@@ -124,7 +163,13 @@ def shap_scores(args, shap_dir):
         (args.input_seq_len // 2)
     peaks_df['end'] = peaks_df['st'] + peaks_df['summit'] + \
         (args.input_seq_len // 2)
+
+    peaks_df['start2'] = peaks_df['st2'] + peaks_df['summit2'] - \
+        (args.control_len // 2)
+    peaks_df['end2'] = peaks_df['st2'] + peaks_df['summit2'] + \
+        (args.control_len // 2)
         
+    
     # get final number of peaks
     num_peaks = peaks_df.shape[0]
     logging.info("#Peaks - {}".format(num_peaks))
@@ -196,12 +241,26 @@ def shap_scores(args, shap_dir):
     
     # list to hold all the sequences for the peaks
     sequences = []
+
+    output_labels = []
     
     # iterate through all the peaks
     for idx, row in peaks_df.iterrows():
         start = row['start']
         end = row['end']
-        
+
+        o_label = np.zeros(end-start)
+        atac_start = row['start2'] - row['start']
+        atac_end = row['end2'] - row['start']
+
+        try:
+            assert atac_start > 0
+            assert atac_end > 0
+        except:
+            print(row)
+
+        o_label[atac_start:atac_end] = 1
+        output_labels.append(o_label)
         # fetch the reference sequence at the peak location
         try:
             seq = fasta_ref.fetch(row['chrom'], start, end).upper()        
@@ -258,37 +317,48 @@ def shap_scores(args, shap_dir):
     # if null distribution is requested
     null_sequences = []
     if args.gen_null_dist:
-        logging.info("generating null sequences ...")
-        rng = np.random.RandomState(args.seed)
+        assert(False)
+        # logging.info("generating null sequences ...")
+        # rng = np.random.RandomState(args.seed)
         
-        # iterate over sequences and get the dinucleotide shuffled
-        # sequence for each of them
-        for seq in sequences:
-            # get a list of shuffled seqs. Since we are setting
-            # num_shufs to 1, the returned list will be of size 1
-            shuffled_seqs = dinuc_shuffle(seq, 1, rng)
-            null_sequences.append(shuffled_seqs[0])
+        # # iterate over sequences and get the dinucleotide shuffled
+        # # sequence for each of them
+        # for seq in sequences:
+        #     # get a list of shuffled seqs. Since we are setting
+        #     # num_shufs to 1, the returned list will be of size 1
+        #     shuffled_seqs = dinuc_shuffle(seq, 1, rng)
+        #     null_sequences.append(shuffled_seqs[0])
         
-        # null sequences are now our actual sequences
-        sequences = null_sequences[:]
+        # # null sequences are now our actual sequences
+        # sequences = null_sequences[:]
 
     # one hot encode all the sequences
     X = one_hot_encode(sequences, args.input_seq_len)
+    output_labels = np.expand_dims(np.array(output_labels),axis=2)
+    X = np.concatenate([X,output_labels],axis=2)
     print("X shape", X.shape)
         
     # inline function to handle dinucleotide shuffling
-    def data_func(model_inputs):
-        rng = np.random.RandomState(args.seed)
-        dinucs =  [dinuc_shuffle(model_inputs[0], args.num_shuffles, rng)] + \
-        [
+
+    def data_func(model_inputs,num_shuffles=20):
+        rng = np.random.RandomState(42)
+        input_seq = model_inputs[0][:,:4]
+        
+        ### shuffle sequences and append the label
+        dinucs =  dinuc_shuffle(input_seq, num_shuffles, rng)
+        label = np.repeat(np.expand_dims(model_inputs[0][:,4],axis=0),axis=0,repeats=num_shuffles)
+        label = np.expand_dims(label,axis=2)
+        dinucs = np.concatenate([dinucs,label],axis=2)
+        dinucs = [dinucs]
+        second_input = [
             np.tile(
                 np.zeros_like(model_inputs[i]),
-                (args.num_shuffles,) + (len(model_inputs[i].shape) * (1,))
+                (num_shuffles,) + (len(model_inputs[i].shape) * (1,))
             ) for i in range(1, len(model_inputs))
         ]
         
-        return dinucs
-    
+        return dinucs + second_input    
+
     print('bias_counts_input:',bias_counts_input)
     print('bias_profile_input:',bias_profile_input)
     if bias_counts_input is None and bias_profile_input is None:
@@ -318,8 +388,6 @@ def shap_scores(args, shap_dir):
         (profile_explainer_inputs, weightedsum_meannormed_logits),
         data_func, 
         combine_mult_and_diffref=combine_mult_and_diffref)
-    
-
 
     logging.info("Generating 'counts' shap scores")
     counts_shap_scores = profile_model_counts_explainer.shap_values(
@@ -443,9 +511,9 @@ def shap_scores_main():
     
     # shap
     logging.info("Loading {}".format(args.model))
-    with CustomObjectScope({'tf': tf,
-                            'CustomModel': CustomModel}):
-        shap_scores(args, shap_scores_dir)
+    # with CustomObjectScope({'tf': tf,
+    #                         'CustomModel': CustomModel}):
+    shap_scores(args, shap_scores_dir)
 
 if __name__ == '__main__':
     shap_scores_main()

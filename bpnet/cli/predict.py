@@ -912,10 +912,10 @@ def predict_main():
 
     # predict
 
-    with CustomObjectScope({'tf': tf,
-                            'CustomModel': CustomModel}):
+    # with CustomObjectScope({'tf': tf,
+    #                         'CustomModel': CustomModel}):
             
-        predict(args, pred_dir)
+    predict(args, pred_dir)
     
 if __name__ == '__main__':
     predict_main()

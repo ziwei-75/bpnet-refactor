@@ -48,8 +48,10 @@ def importance_hdf5_to_bigwig(hdf5_path: str,
 
     scores = h5py.File(hdf5_path, 'r')
 
-    shap_scores = scores['hyp_scores']
-    one_hot_seqs = scores['input_seqs']
+    shap_scores = scores['hyp_scores'][:,:,:4]
+    one_hot_seqs = scores['input_seqs'][:,:,:4]
+    print("Shape of importance scores:", shap_scores.shape)
+    print("Shape of one-hot sequences:", one_hot_seqs.shape)
 
     print("Computing projected shap scores")
     proj_shap_scores = np.multiply(one_hot_seqs, shap_scores)
